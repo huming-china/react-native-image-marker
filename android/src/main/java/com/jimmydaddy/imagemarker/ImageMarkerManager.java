@@ -24,10 +24,12 @@ import com.facebook.react.bridge.Promise;
 import com.facebook.react.bridge.ReactApplicationContext;
 import com.facebook.react.bridge.ReactContextBaseJavaModule;
 import com.facebook.react.bridge.ReactMethod;
+import com.facebook.react.bridge.ReadableArray;
 import com.facebook.react.bridge.ReadableMap;
 import com.facebook.react.views.text.ReactFontManager;
 
 import java.io.BufferedOutputStream;
+import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.UUID;
@@ -222,7 +224,7 @@ public class ImageMarkerManager extends ReactContextBaseJavaModule {
             bos = new BufferedOutputStream(new FileOutputStream(dest));
 
 //            int quaility = (int) (100 / percent > 80 ? 80 : 100 / percent);
-            icon.compress(Bitmap.CompressFormat.JPEG, quality, bos);
+            icon.compress(Bitmap.CompressFormat.PNG, quality, bos);
             bos.flush();
             //保存成功的
             promise.resolve(dest);
@@ -571,6 +573,147 @@ public class ImageMarkerManager extends ReactContextBaseJavaModule {
             promise.reject("error", e.getMessage(), e);
         }
     }
+
+    boolean isOver=false;
+
+
+    @ReactMethod
+    public void markWithObjects(ReadableMap src, final ReadableArray markers, final int quality, String filename, final Promise promise ) {
+    try{
+        Log.e("SRC", "markWithObjects: "+src.toString() );
+        Log.e("SRC", "markers: "+markers.toString() );
+
+        isOver=false;
+        final String uri = src.getString(PROP_ICON_URI);
+
+        final String dest =generateCacheFilePathForMarker(uri, filename);
+
+        Log.d(IMAGE_MARKER_TAG, uri);
+        Log.d(IMAGE_MARKER_TAG, src.toString());
+
+
+
+        final Paint photoPaint = new Paint();
+        photoPaint.setDither(true);
+
+
+
+
+
+        ImageRequest imageRequest = ImageRequest.fromUri(uri);
+        DataSource<CloseableReference<CloseableImage>> dataSource = Fresco.getImagePipeline().fetchDecodedImage(imageRequest, null);
+        Executor executor = Executors.newSingleThreadExecutor();
+        dataSource.subscribe(new BaseBitmapDataSubscriber() {
+            @Override
+            public void onNewResultImpl(@Nullable final Bitmap bg) {
+                if (bg != null) {
+                    int width = bg.getWidth();
+                    int height = bg.getHeight();
+                    //创建一个bitmap
+                    Bitmap newb = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);// 创建一个新的和SRC长度宽度一样的位图
+                    //将该图片作为画布
+                    final Canvas canvas = new Canvas(newb);
+                    //在画布 0，0坐标上开始绘制原始图片
+                    canvas.drawBitmap(bg, 0, 0, null);
+
+                    for (int i=0;i<markers.size();i++){
+                        final ReadableMap map= markers.getMap(i);
+                        if(map.getInt("type")==1){//icon http网络头像
+                            final String photoUri=map.getString("url");
+                            ImageRequest imageRequest = ImageRequest.fromUri(photoUri);
+                            DataSource<CloseableReference<CloseableImage>> dataSource = Fresco.getImagePipeline().fetchDecodedImage(imageRequest, null);
+                            Executor executor = Executors.newSingleThreadExecutor();
+                            dataSource.subscribe(new BaseBitmapDataSubscriber() {
+                                @Override
+                                public void onNewResultImpl(@Nullable Bitmap bitmap) {
+                                    Log.e("SRC", "头像: "+bitmap );
+                                    if (bitmap != null) {
+                                        canvas.drawBitmap(bitmap,map.getInt("X"),map.getInt("Y"),photoPaint);
+                                        if (bitmap.isRecycled()) {
+                                            bitmap.recycle();
+                                        }
+                                    } else {
+                                        Log.e("SRC", "rrrrrrrrr5555555");
+                                        promise.reject( "marker error","Can't retrieve the file from the markerpath: " + photoUri);
+                                    }
+                                    isOver=true;
+                                }
+
+                                @Override
+                                public void onFailureImpl(DataSource dataSource) {
+                                    Log.e("SRC", "rrrrrrrrr444444444444 ");
+                                    promise.reject( "error","Can't request the image from the uri: " + photoUri, dataSource.getFailureCause());
+                                }
+                            }, executor);
+
+                        }else {
+                            Log.e("SRC", "文字: "+map.getString("text") );
+
+                            Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+                            Log.e("", map.getInt("X") + "  xxxxxx " + map.getInt("Y"));
+                            Log.e("", "test:   oooo" + width + " " + height);
+                            textPaint.setTextSize(map.getInt("fontSize")<=0?36:map.getInt("fontSize"));
+                                try {
+                                    textPaint.setColor(Color.parseColor(map.getString("color")));
+                                    if(map.getString("fontName")!=null) {
+                                        //设置字体失败时使用默认字体
+                                        textPaint.setTypeface(ReactFontManager.getInstance().getTypeface(map.getString("fontName"), Typeface.BOLD, getReactApplicationContext().getAssets()));
+                                    }
+                                    } catch (Exception e) {
+                                    textPaint.setTypeface(Typeface.DEFAULT);
+                                }
+                            //textPaint.getTextBounds(paintBean.getText(), 0, paintBean.getText().length(), textBounds);
+                            canvas.drawText(map.getString("text"), map.getInt("X"), map.getInt("Y"), textPaint);
+
+                        }
+                        Log.e("SRC", "onNewResultImpl: iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii"+i);
+
+
+                    }
+                    canvas.save();
+
+                    canvas.restore();
+                    try {
+                        BufferedOutputStream bos = null;
+                        bos = new BufferedOutputStream(new FileOutputStream(dest));
+                        newb.compress(Bitmap.CompressFormat.PNG, quality, bos);
+                        bos.flush();
+                        //保存成功的
+                        Log.e("SRC", "rrrrrrrrr33333333333");
+                        promise.resolve(dest);
+                    } catch (FileNotFoundException e) {
+                        e.printStackTrace();
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+
+                } else {
+                    Log.e("SRC", "rrrrrrrrr111111111111 ");
+                    promise.reject( "marker error","Can't retrieve the file from the src: " + uri);
+                }
+            }
+
+            @Override
+            public void onFailureImpl(DataSource dataSource) {
+                Log.e("SRC", "rrrrrrrrr222222222222222 ");
+                promise.reject( "error","Can't request the image from the uri: " + uri, dataSource.getFailureCause());
+            }
+        }, executor);
+
+
+
+
+
+
+
+    } catch (Exception e) {
+        Log.d(IMAGE_MARKER_TAG, "error：" + e.getMessage());
+        e.printStackTrace();
+        promise.reject("error", e.getMessage(), e);
+    }
+
+}
+
 
     @ReactMethod
     public void markWithImage(ReadableMap src, final ReadableMap marker, final Integer X, final Integer Y, final Float scale, final Float markerScale, final int quality, String filename, final Promise promise ) {

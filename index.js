@@ -183,4 +183,32 @@ export default class Marker {
       )
     }
   }
+
+  static markWithObjects(option: ImageMarkOption) {
+    const { 
+      src,
+      makers,
+      quality,
+      filename
+    } = option
+
+    if (!src) {
+      throw new Error('please set image!')
+    }
+
+    let srcObj = resolveAssetSource(src)
+    if (!srcObj) {
+      srcObj = {
+        uri: src,
+        __packager_asset: false
+      }
+    }
+    return ImageMarker.markWithObjects(
+      srcObj,
+      makers,
+      quality,
+      filename
+    )
+  }
+  
 }
